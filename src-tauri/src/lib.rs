@@ -81,11 +81,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            db::init_db(app.handle()).map_err(|e| {
-                eprintln!("Database initialization failed: {}", e);
-                // Box error nicely for Tauri bootstrap
-                Box::<dyn std::error::Error + Send + Sync>::from(e)
-            })?;
+            // Initialize database, panicking cleanly on startup failure
+            db::init_db(app.handle()).expect("Database initialization failed");
             
             // Ensure raw_thoughts directory exists on setup
             let _ = fs::get_raw_thoughts_dir();
