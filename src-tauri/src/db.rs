@@ -1,7 +1,52 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 use tauri::Manager;
+
+// ----------------------------------------------------
+// DBSETTINGS.JSON STRUCT SCHEMA (PascalCase)
+// ----------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct DbSettings {
+    pub active_profile: String,
+    pub profiles: Vec<Profile>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct Profile {
+    pub name: String,
+    pub provider_type: String,
+    pub properties: Properties,
+    pub backup_path: String,
+    pub backup_retention_count: i32,
+    pub background_color: String,
+    pub is_production: bool,
+    pub requires_backup: bool,
+    pub indicator_style: String,
+    pub logging: Logging,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct Properties {
+    pub main: String,
+    pub config: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub struct Logging {
+    pub enabled: bool,
+    pub log_directory: String,
+}
+
+// ----------------------------------------------------
+// DATABASE MODELS
+// ----------------------------------------------------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Requirement {
@@ -30,24 +75,76 @@ pub struct ProjectAnswer {
     pub updated_at: Option<String>,
 }
 
-// Get SQLite connection, ensuring database and app data directory exist
-pub fn get_db_conn(app_handle: &tauri::AppHandle) -> Result<Connection, String> {
+// ----------------------------------------------------
+// STEP 1: CONFIGURATION PARSING & REDIRECTION
+// ----------------------------------------------------
+
+// Load dbsettings.json from the executable directory if it exists
+pub fn load_db_settings() -> Option<DbSettings> {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let settings_path = exe_dir.join("dbsettings.json");
+            if settings_path.exists() {
+                if let Ok(content) = fs::read_to_string(settings_path) {
+                    if let Ok(settings) = serde_json::from_str::<DbSettings>(&content) {
+                        return Some(settings);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+// Resolve SQLite path based on active profile, with AppData Roaming fallback
+pub fn get_db_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    if let Some(settings) = load_db_settings() {
+        if let Some(profile) = settings.profiles.iter().find(|p| p.name == settings.active_profile) {
+            let main_path_str = &profile.properties.main;
+            let main_path = PathBuf::from(main_path_str);
+            
+            // Resolve relative paths relative to the executable directory
+            let resolved_path = if main_path.is_relative() {
+                if let Ok(exe_path) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe_path.parent() {
+                        exe_dir.join(main_path)
+                    } else {
+                        main_path
+                    }
+                } else {
+                    main_path
+                }
+            } else {
+                main_path
+            };
+
+            // Ensure parent directory exists automatically along the path
+            if let Some(parent) = resolved_path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            
+            return resolved_path;
+        }
+    }
+
+    // FALLBACK: AppData Roaming directory (default Tauri path)
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| format!("Failed to get app data directory: {}", e))?;
+        .unwrap_or_else(|_| PathBuf::from("."));
+    
+    let _ = fs::create_dir_all(&app_data_dir);
+    app_data_dir.join("markdown_translator.db")
+}
 
-    // Create the app data directory if it doesn't exist
-    if !app_data_dir.exists() {
-        fs::create_dir_all(&app_data_dir)
-            .map_err(|e| format!("Failed to create app data directory: {}", e))?;
-    }
-
-    let db_path = app_data_dir.join("markdown_translator.db");
+// Get SQLite connection, ensuring database and directories exist
+pub fn get_db_conn(app_handle: &tauri::AppHandle) -> Result<Connection, String> {
+    let db_path = get_db_path(app_handle);
     Connection::open(db_path).map_err(|e| format!("Failed to open SQLite database: {}", e))
 }
 
 // Initialize tables and seed default requirements if empty
+// Crucial Constraint: All tables strictly follow lowercase plural snake_case conventions
 pub fn init_db(app_handle: &tauri::AppHandle) -> Result<(), String> {
     let conn = get_db_conn(app_handle)?;
 

@@ -1,0 +1,41 @@
+{
+  "ActiveProfile": "Development",
+  "Profiles": [
+    {
+      "Name": "Development",
+      "ProviderType": "SQLite",
+      "Properties": {
+        "Main": "databases/main_dev.db",
+        "Config": "databases/config_dev.db"
+      },
+      "BackupPath": "backups/dev/",
+      "BackupRetentionCount": 5,
+      "BackgroundColor": "#131a2b",
+      "IsProduction": false,
+      "RequiresBackup": false,
+      "IndicatorStyle": "Dot",
+      "Logging": {
+        "Enabled": true,
+        "LogDirectory": "logs/dev/"
+      }
+    },
+    {
+      "Name": "Production",
+      "ProviderType": "SQLite",
+      "Properties": {
+        "Main": "databases/main_prod.db",
+        "Config": "databases/config_prod.db"
+      },
+      "BackupPath": "backups/prod/",
+      "BackupRetentionCount": 10,
+      "BackgroundColor": "#0b0f19",
+      "IsProduction": true,
+      "RequiresBackup": true,
+      "IndicatorStyle": "Glow",
+      "Logging": {
+        "Enabled": true,
+        "LogDirectory": "logs/prod/"
+      }
+    }
+  ]
+}
